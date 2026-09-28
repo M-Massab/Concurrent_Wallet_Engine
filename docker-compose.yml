@@ -1,0 +1,59 @@
+
+
+services:
+
+  postgres:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_DB:       wallet_db
+      POSTGRES_USER:     postgres
+      POSTGRES_PASSWORD: postgres_secret
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test:     ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout:  5s
+      retries:  5
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    # AOF persistence: every write is fsynced — no idempotency keys lost on restart
+    command: redis-server --appendonly yes --appendfsync everysec
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test:     ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout:  3s
+      retries:  5
+
+  api:
+    build: .
+    ports:
+      - "3000:3000"
+    environment:
+      NODE_ENV:     production
+      PORT:         3000
+      DB_HOST:      postgres
+      DB_PORT:      5432
+      DB_NAME:      wallet_db
+      DB_USER:      postgres
+      DB_PASSWORD:  postgres_secret
+      REDIS_HOST:   redis
+      REDIS_PORT:   6379
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    # Run migration on startup, then start the server
+    command: sh -c "node src/db/migrate.js && node src/app.js"
+
+volumes:
+  postgres_data:
+  redis_data:
